@@ -4,6 +4,7 @@ from app.models import BatchRequest
 from app.settings import settings
 from app.drive_client import list_folder_files
 from app.drive_client import find_asset_folders
+from app.drive_client import find_logo_folder
 
 
 app = FastAPI(
@@ -87,3 +88,36 @@ def get_asset_folders(
         "assets_folder_id": assets_folder_id,
         "folders": folders
     }
+
+@app.get("/drive/assets/{assets_folder_id}")
+def get_assets_folder(
+    assets_folder_id: str,
+    x_api_key: str | None = Header(default=None)
+):
+    verify_api_key(x_api_key)
+
+    try:
+        logo_folder = find_logo_folder(assets_folder_id)
+
+        if not logo_folder:
+            raise HTTPException(
+                status_code=404,
+                detail="Logos folder not found inside Assets folder"
+            )
+
+        return {
+            "status": "success",
+            "assets_folder_id": assets_folder_id,
+            "folders": {
+                "logos": logo_folder
+            }
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as error:
+        raise HTTPException(
+            status_code=500,
+            detail=str(error)
+        )

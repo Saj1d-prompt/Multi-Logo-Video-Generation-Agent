@@ -174,3 +174,41 @@ def find_asset_folders(assets_folder_id: str) -> dict[str, dict]:
         "subtitles": folder_index.get("subtitles")
     }
 
+FOLDER_MIME_TYPE = "application/vnd.google-apps.folder"
+
+
+def list_child_folders(parent_folder_id: str) -> list[dict]:
+    service = get_drive_service()
+
+    folders = []
+    page_token = None
+
+    while True:
+        response = service.files().list(
+            q=(
+                f"'{parent_folder_id}' in parents and "
+                f"mimeType = '{FOLDER_MIME_TYPE}' and "
+                "trashed = false"
+            ),
+            spaces="drive",
+            fields="nextPageToken,files(id,name,mimeType)",
+            pageToken=page_token
+        ).execute()
+
+        folders.extend(response.get("files", []))
+        page_token = response.get("nextPageToken")
+
+        if not page_token:
+            break
+
+    return folders
+
+
+def find_logo_folder(assets_folder_id: str) -> dict | None:
+    folders = list_child_folders(assets_folder_id)
+
+    for folder in folders:
+        if folder["name"].strip().casefold() == "logos":
+            return folder
+
+    return None
