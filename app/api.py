@@ -2,6 +2,7 @@ from fastapi import FastAPI, Header, HTTPException
 
 from app.models import BatchRequest
 from app.settings import settings
+from app.drive_client import list_folder_files
 
 
 app = FastAPI(
@@ -33,6 +34,29 @@ def health():
         "status": "healthy",
         "service": settings.app_name
     }
+
+@app.get("/drive/folders/{folder_id}/files")
+def get_drive_folder_files(
+    folder_id: str,
+    x_api_key: str | None = Header(default=None)
+):
+    verify_api_key(x_api_key)
+
+    try:
+        files = list_folder_files(folder_id)
+
+        return {
+            "status": "success",
+            "folder_id": folder_id,
+            "total_files": len(files),
+            "files": files
+        }
+
+    except Exception as error:
+        raise HTTPException(
+            status_code=500,
+            detail=str(error)
+        )
 
 
 @app.post("/dry-run")
