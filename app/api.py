@@ -3,6 +3,7 @@ from fastapi import FastAPI, Header, HTTPException
 from app.models import BatchRequest
 from app.settings import settings
 from app.drive_client import list_folder_files
+from app.drive_client import find_asset_folders
 
 
 app = FastAPI(
@@ -70,4 +71,19 @@ def dry_run(
         "status": "success",
         "message": "Request accepted for testing",
         "received": request.model_dump()
+    }
+
+@app.get("/drive/assets/{assets_folder_id}")
+def get_asset_folders(
+    assets_folder_id: str,
+    x_api_key: str | None = Header(default=None)
+):
+    verify_api_key(x_api_key)
+
+    folders = find_asset_folders(assets_folder_id)
+
+    return {
+        "status": "success",
+        "assets_folder_id": assets_folder_id,
+        "folders": folders
     }

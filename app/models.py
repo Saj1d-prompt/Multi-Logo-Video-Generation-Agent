@@ -19,8 +19,7 @@ class RenderSettings(BaseModel):
 
 class BatchRequest(BaseModel):
     video_folder_id: str
-    logo_folder_id: str
-    music_folder_id: str | None = None
+    assets_folder_id: str
     output_folder_id: str
     clickup_list_id: str
 

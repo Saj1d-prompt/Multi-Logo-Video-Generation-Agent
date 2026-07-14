@@ -126,3 +126,51 @@ def upload_video(
     ).execute()
 
     return uploaded
+
+FOLDER_MIME_TYPE = "application/vnd.google-apps.folder"
+
+
+def list_child_folders(parent_folder_id: str) -> list[dict]:
+    service = get_drive_service()
+
+    folders = []
+    page_token = None
+
+    while True:
+        response = service.files().list(
+            q=(
+                f"'{parent_folder_id}' in parents and "
+                f"mimeType = '{FOLDER_MIME_TYPE}' and "
+                "trashed = false"
+            ),
+            spaces="drive",
+            fields="nextPageToken,files(id,name,mimeType)",
+            pageToken=page_token
+        ).execute()
+
+        folders.extend(response.get("files", []))
+        page_token = response.get("nextPageToken")
+
+        if not page_token:
+            break
+
+    return folders
+
+def find_asset_folders(assets_folder_id: str) -> dict[str, dict]:
+    folders = list_child_folders(assets_folder_id)
+
+    folder_index = {
+        folder["name"].strip().casefold(): folder
+        for folder in folders
+    }
+
+    return {
+        "logos": folder_index.get("logos"),
+        "music": folder_index.get("music"),
+        "sfx": folder_index.get("sfx"),
+        "overlays": folder_index.get("overlays"),
+        "intros": folder_index.get("intros"),
+        "outros": folder_index.get("outros"),
+        "subtitles": folder_index.get("subtitles")
+    }
+

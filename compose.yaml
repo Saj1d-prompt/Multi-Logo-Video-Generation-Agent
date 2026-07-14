@@ -16,4 +16,11 @@ services:
       - ./credentials:/app/credentials:ro
       - ./workspace:/app/workspace
 
+    networks:
+      - video-automation-network
+
     restart: unless-stopped
+
+networks:
+  video-automation-network:
+    external: true
