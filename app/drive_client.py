@@ -4,7 +4,9 @@ from typing import Any
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload
-
+from googleapiclient.http import (
+    MediaFileUpload
+)
 from app.settings import settings
 
 
@@ -210,5 +212,74 @@ def find_logo_folder(assets_folder_id: str) -> dict | None:
     for folder in folders:
         if folder["name"].strip().casefold() == "logos":
             return folder
+
+    return None
+
+def download_file(
+    file_id: str,
+    destination: Path,
+) -> Path:
+    service = get_drive_service()
+
+    destination.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    request = service.files().get_media(
+        fileId=file_id
+    )
+
+    with destination.open("wb") as file_handle:
+        downloader = MediaIoBaseDownload(
+            file_handle,
+            request,
+        )
+
+        done = False
+
+        while not done:
+            _, done = downloader.next_chunk()
+
+    return destination
+
+
+def upload_video(
+    local_file: Path,
+    output_folder_id: str,
+) -> dict[str, Any]:
+    if not local_file.exists():
+        raise FileNotFoundError(
+            f"Rendered file not found: {local_file}"
+        )
+
+    service = get_drive_service()
+
+    metadata = {
+        "name": local_file.name,
+        "parents": [output_folder_id],
+    }
+
+    media = MediaFileUpload(
+        str(local_file),
+        mimetype="video/mp4",
+        resumable=True,
+    )
+
+    return service.files().create(
+        body=metadata,
+        media_body=media,
+        fields="id,name,webViewLink",
+    ).execute()
+
+def find_file_by_exact_name(
+    folder_id: str,
+    file_name: str,
+) -> dict[str, Any] | None:
+    files = list_folder_files(folder_id)
+
+    for file in files:
+        if file.get("name") == file_name:
+            return file
 
     return None
