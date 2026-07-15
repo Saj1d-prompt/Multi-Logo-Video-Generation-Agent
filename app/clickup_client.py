@@ -101,27 +101,27 @@ def discover_workspace_lists(
     return discovered_lists
 
 
-def normalize_name(value: str) -> str:
-    return " ".join(
-        value.strip().casefold().replace("_", " ").replace("-", " ").split()
-    )
-
-
 def find_list_by_name(
     workspace_id: str,
     list_name: str,
 ) -> dict[str, Any]:
-    target_name = normalize_name(list_name)
+    """
+    Finds a ClickUp List using exact,
+    case-sensitive name matching.
+    """
 
     matching_lists = [
         item
-        for item in discover_workspace_lists(workspace_id)
-        if normalize_name(str(item.get("name", ""))) == target_name
+        for item in discover_workspace_lists(
+            workspace_id
+        )
+        if item.get("name") == list_name
     ]
 
     if not matching_lists:
         raise ValueError(
-            f"ClickUp List not found: {list_name}"
+            f"ClickUp List not found with "
+            f"exact name: {list_name}"
         )
 
     if len(matching_lists) > 1:
@@ -129,14 +129,19 @@ def find_list_by_name(
             {
                 "id": item["id"],
                 "name": item["name"],
-                "space_name": item["space_name"],
-                "folder_name": item["folder_name"],
+                "space_name": (
+                    item["space_name"]
+                ),
+                "folder_name": (
+                    item["folder_name"]
+                ),
             }
             for item in matching_lists
         ]
 
         raise ValueError(
-            f"Multiple ClickUp Lists found with the name "
+            f"Multiple ClickUp Lists found "
+            f"with the exact name "
             f"'{list_name}': {matches}"
         )
 
