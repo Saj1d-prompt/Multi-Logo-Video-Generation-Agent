@@ -1,5 +1,18 @@
+import shutil
+import tempfile
+from pathlib import Path
+
 import httpx
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import (
+    FastAPI,
+    File,
+    Form,
+    Header,
+    HTTPException,
+    UploadFile,
+)
+from fastapi.background import BackgroundTasks
+from fastapi.responses import FileResponse
 
 from app.clickup_client import (
     discover_workspace_lists,
@@ -9,10 +22,14 @@ from app.drive_client import (
     find_logo_folder,
     list_folder_files,
 )
-from app.models import BatchRequest
-from app.settings import settings
 from app.matching import build_dry_run_plan
-from app.pipeline import process_batch
+from app.models import BatchRequest
+from app.renderer import (
+    RenderError,
+    add_full_frame_logo,
+    check_ffmpeg,
+)
+from app.settings import settings
 
 
 app = FastAPI(
@@ -27,6 +44,60 @@ def verify_api_key(api_key: str | None) -> None:
             status_code=401,
             detail="Invalid API key",
         )
+
+
+def safe_filename(file_name: str) -> str:
+    """
+    Prevent directory traversal and keep only a filename.
+    """
+
+    cleaned_name = Path(file_name).name
+
+    if not cleaned_name:
+        raise ValueError("Output filename cannot be empty")
+
+    if not cleaned_name.lower().endswith(".mp4"):
+        cleaned_name = f"{cleaned_name}.mp4"
+
+    return cleaned_name
+
+
+async def save_upload_file(
+    upload: UploadFile,
+    destination: Path,
+) -> None:
+    """
+    Save an uploaded file in chunks instead of loading
+    the complete video into memory.
+    """
+
+    destination.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    with destination.open("wb") as file_handle:
+        while True:
+            chunk = await upload.read(
+                1024 * 1024
+            )
+
+            if not chunk:
+                break
+
+            file_handle.write(chunk)
+
+    await upload.close()
+
+
+@app.on_event("startup")
+def validate_runtime() -> None:
+    settings.workspace_root.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    check_ffmpeg()
 
 
 @app.get("/")
@@ -49,12 +120,16 @@ def health():
 @app.get("/drive/folders/{folder_id}/files")
 def get_drive_folder_files(
     folder_id: str,
-    x_api_key: str | None = Header(default=None),
+    x_api_key: str | None = Header(
+        default=None
+    ),
 ):
     verify_api_key(x_api_key)
 
     try:
-        files = list_folder_files(folder_id)
+        files = list_folder_files(
+            folder_id
+        )
 
         return {
             "status": "success",
@@ -73,7 +148,9 @@ def get_drive_folder_files(
 @app.get("/drive/assets/{assets_folder_id}")
 def get_assets_folder(
     assets_folder_id: str,
-    x_api_key: str | None = Header(default=None),
+    x_api_key: str | None = Header(
+        default=None
+    ),
 ):
     verify_api_key(x_api_key)
 
@@ -93,7 +170,9 @@ def get_assets_folder(
 
         return {
             "status": "success",
-            "assets_folder_id": assets_folder_id,
+            "assets_folder_id": (
+                assets_folder_id
+            ),
             "folders": {
                 "logos": logo_folder,
             },
@@ -109,10 +188,14 @@ def get_assets_folder(
         ) from error
 
 
-@app.get("/clickup/workspaces/{workspace_id}/lists")
+@app.get(
+    "/clickup/workspaces/{workspace_id}/lists"
+)
 def get_clickup_workspace_lists(
     workspace_id: str,
-    x_api_key: str | None = Header(default=None),
+    x_api_key: str | None = Header(
+        default=None
+    ),
 ):
     verify_api_key(x_api_key)
 
@@ -130,7 +213,9 @@ def get_clickup_workspace_lists(
 
     except httpx.HTTPStatusError as error:
         raise HTTPException(
-            status_code=error.response.status_code,
+            status_code=(
+                error.response.status_code
+            ),
             detail=error.response.text,
         ) from error
 
@@ -141,11 +226,16 @@ def get_clickup_workspace_lists(
         ) from error
 
 
-@app.get("/clickup/workspaces/{workspace_id}/lists/by-name/tasks")
+@app.get(
+    "/clickup/workspaces/"
+    "{workspace_id}/lists/by-name/tasks"
+)
 def get_clickup_tasks_by_list_name(
     workspace_id: str,
     list_name: str,
-    x_api_key: str | None = Header(default=None),
+    x_api_key: str | None = Header(
+        default=None
+    ),
 ):
     verify_api_key(x_api_key)
 
@@ -159,7 +249,9 @@ def get_clickup_tasks_by_list_name(
             "status": "success",
             "workspace_id": workspace_id,
             "list": result["list"],
-            "total_tasks": len(result["tasks"]),
+            "total_tasks": len(
+                result["tasks"]
+            ),
             "tasks": result["tasks"],
         }
 
@@ -171,7 +263,9 @@ def get_clickup_tasks_by_list_name(
 
     except httpx.HTTPStatusError as error:
         raise HTTPException(
-            status_code=error.response.status_code,
+            status_code=(
+                error.response.status_code
+            ),
             detail=error.response.text,
         ) from error
 
@@ -192,15 +286,12 @@ def dry_run(
     verify_api_key(x_api_key)
 
     try:
-        # Read direct files inside the
-        # supplied video folder.
         video_folder_files = (
             list_folder_files(
                 request.video_folder_id
             )
         )
 
-        # Keep video files only.
         videos = [
             file
             for file in video_folder_files
@@ -210,8 +301,6 @@ def dry_run(
             ).startswith("video/")
         ]
 
-        # Find the Logos folder inside
-        # the Assets master folder.
         logo_folder = find_logo_folder(
             request.assets_folder_id
         )
@@ -225,12 +314,10 @@ def dry_run(
                 ),
             )
 
-        # Read files from the Logos folder.
         asset_files = list_folder_files(
             logo_folder["id"]
         )
 
-        # Keep supported image files only.
         logo_files = [
             file
             for file in asset_files
@@ -241,8 +328,6 @@ def dry_run(
             }
         ]
 
-        # Find the exact ClickUp List name
-        # and retrieve its tasks.
         clickup_result = (
             get_tasks_by_list_name(
                 workspace_id=(
@@ -256,15 +341,10 @@ def dry_run(
             )
         )
 
-        tasks = clickup_result["tasks"]
-
-        # Match:
-        # video stem == task name
-        # task tag == logo stem
         plan = build_dry_run_plan(
             videos=videos,
             logo_files=logo_files,
-            tasks=tasks,
+            tasks=clickup_result["tasks"],
         )
 
         return {
@@ -309,22 +389,129 @@ def dry_run(
             status_code=500,
             detail=str(error),
         ) from error
-    
 
-@app.post("/process-batch")
-def run_process_batch(
-    request: BatchRequest,
-    x_api_key: str | None = Header(default=None),
+
+@app.post("/render-one")
+async def render_one(
+    background_tasks: BackgroundTasks,
+    source_video: UploadFile = File(...),
+    logo_file: UploadFile = File(...),
+    output_file_name: str = Form(...),
+    x_api_key: str | None = Header(
+        default=None
+    ),
 ):
+    """
+    Receive one video and one full-frame transparent
+    logo image, render the result, and return an MP4.
+
+    Google Drive downloading and uploading are handled
+    by n8n, not by this endpoint.
+    """
+
     verify_api_key(x_api_key)
 
-    try:
-        return process_batch(request)
+    temp_directory = Path(
+        tempfile.mkdtemp(
+            prefix="render_",
+            dir=str(
+                settings.workspace_root
+            ),
+        )
+    )
 
-    except HTTPException:
-        raise
+    try:
+        output_name = safe_filename(
+            output_file_name
+        )
+
+        source_extension = (
+            Path(
+                source_video.filename
+                or "source.mp4"
+            ).suffix
+            or ".mp4"
+        )
+
+        logo_extension = (
+            Path(
+                logo_file.filename
+                or "logo.png"
+            ).suffix
+            or ".png"
+        )
+
+        source_path = (
+            temp_directory
+            / f"source{source_extension}"
+        )
+
+        logo_path = (
+            temp_directory
+            / f"logo{logo_extension}"
+        )
+
+        output_path = (
+            temp_directory
+            / output_name
+        )
+
+        await save_upload_file(
+            source_video,
+            source_path,
+        )
+
+        await save_upload_file(
+            logo_file,
+            logo_path,
+        )
+
+        add_full_frame_logo(
+            source_video=source_path,
+            logo_file=logo_path,
+            output_video=output_path,
+        )
+
+        if not output_path.exists():
+            raise RuntimeError(
+                "Rendered video was not created"
+            )
+
+        if output_path.stat().st_size == 0:
+            raise RuntimeError(
+                "Rendered video is empty"
+            )
+
+        background_tasks.add_task(
+            shutil.rmtree,
+            temp_directory,
+            True,
+        )
+
+        return FileResponse(
+            path=output_path,
+            media_type="video/mp4",
+            filename=output_name,
+            background=background_tasks,
+        )
+
+    except RenderError as error:
+        shutil.rmtree(
+            temp_directory,
+            ignore_errors=True,
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail=f"FFmpeg error: {error}",
+        ) from error
 
     except Exception as error:
+        shutil.rmtree(
+            temp_directory,
+            ignore_errors=True,
+        )
+
         raise HTTPException(
             status_code=500,
             detail=str(error),

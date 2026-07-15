@@ -2,14 +2,13 @@ from pathlib import Path
 from typing import Any
 
 
-def get_file_stem(file_name: str) -> str:
+def get_file_stem(
+    file_name: str,
+) -> str:
     """
-    Removes only the final file extension.
+    Remove only the final file extension.
 
-    Examples:
-    Video01.mp4 -> Video01
-    Video-01.mp4 -> Video-01
-    Sticker Visa.png -> Sticker Visa
+    Matching remains exact and case-sensitive.
     """
 
     return Path(file_name).stem
@@ -18,11 +17,10 @@ def get_file_stem(file_name: str) -> str:
 def build_task_index(
     tasks: list[dict[str, Any]],
 ) -> dict[str, list[dict[str, Any]]]:
-    """
-    Creates an exact, case-sensitive task-name index.
-    """
-
-    index: dict[str, list[dict[str, Any]]] = {}
+    index: dict[
+        str,
+        list[dict[str, Any]],
+    ] = {}
 
     for task in tasks:
         task_name = task.get("name")
@@ -41,13 +39,10 @@ def build_task_index(
 def build_logo_index(
     logo_files: list[dict[str, Any]],
 ) -> dict[str, list[dict[str, Any]]]:
-    """
-    Creates an exact, case-sensitive logo index.
-
-    The logo extension is removed before indexing.
-    """
-
-    index: dict[str, list[dict[str, Any]]] = {}
+    index: dict[
+        str,
+        list[dict[str, Any]],
+    ] = {}
 
     for logo in logo_files:
         logo_name = logo.get("name")
@@ -69,10 +64,20 @@ def build_logo_index(
 
 def match_video_to_task_and_logos(
     video: dict[str, Any],
-    task_index: dict[str, list[dict[str, Any]]],
-    logo_index: dict[str, list[dict[str, Any]]],
+    task_index: dict[
+        str,
+        list[dict[str, Any]],
+    ],
+    logo_index: dict[
+        str,
+        list[dict[str, Any]],
+    ],
 ) -> dict[str, Any]:
-    video_name = video.get("name", "")
+    video_name = video.get(
+        "name",
+        "",
+    )
+
     video_stem = get_file_stem(
         video_name
     )
@@ -85,25 +90,35 @@ def match_video_to_task_and_logos(
     if not matching_tasks:
         return {
             "status": "skipped",
-            "reason": "clickup_task_not_found",
-            "expected_task_name": video_stem,
+            "reason": (
+                "clickup_task_not_found"
+            ),
+            "expected_task_name": (
+                video_stem
+            ),
             "video": video,
         }
 
     if len(matching_tasks) > 1:
         return {
             "status": "conflict",
-            "reason": "duplicate_clickup_tasks",
-            "expected_task_name": video_stem,
+            "reason": (
+                "duplicate_clickup_tasks"
+            ),
+            "expected_task_name": (
+                video_stem
+            ),
             "video": video,
-            "matching_tasks": matching_tasks,
+            "matching_tasks": (
+                matching_tasks
+            ),
         }
 
     task = matching_tasks[0]
 
-    matched_logos: list[dict[str, Any]] = []
-    unmatched_tags: list[str] = []
-    duplicate_logo_tags: list[dict[str, Any]] = []
+    matched_logos = []
+    unmatched_tags = []
+    duplicate_logo_tags = []
 
     for tag_name in task.get(
         "tags",
@@ -133,7 +148,9 @@ def match_video_to_task_and_logos(
     if duplicate_logo_tags:
         return {
             "status": "conflict",
-            "reason": "duplicate_logo_files",
+            "reason": (
+                "duplicate_logo_files"
+            ),
             "video": video,
             "task": task,
             "duplicate_logo_tags": (
@@ -147,7 +164,9 @@ def match_video_to_task_and_logos(
     if not matched_logos:
         return {
             "status": "skipped",
-            "reason": "no_matching_logo",
+            "reason": (
+                "no_matching_logo"
+            ),
             "video": video,
             "task": task,
             "unmatched_tags": (
@@ -163,16 +182,23 @@ def match_video_to_task_and_logos(
         )
 
         planned_outputs.append(
-            f"{video_stem}__{logo_stem}.mp4"
+            f"{video_stem}"
+            f"__{logo_stem}.mp4"
         )
 
     return {
         "status": "ready",
         "video": video,
         "task": task,
-        "matched_logos": matched_logos,
-        "unmatched_tags": unmatched_tags,
-        "planned_outputs": planned_outputs,
+        "matched_logos": (
+            matched_logos
+        ),
+        "unmatched_tags": (
+            unmatched_tags
+        ),
+        "planned_outputs": (
+            planned_outputs
+        ),
     }
 
 
