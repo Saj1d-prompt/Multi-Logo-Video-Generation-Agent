@@ -12,6 +12,7 @@ from app.drive_client import (
 from app.models import BatchRequest
 from app.settings import settings
 from app.matching import build_dry_run_plan
+from app.pipeline import process_batch
 
 
 app = FastAPI(
@@ -302,6 +303,26 @@ def dry_run(
             ),
             detail=error.response.text,
         ) from error
+
+    except Exception as error:
+        raise HTTPException(
+            status_code=500,
+            detail=str(error),
+        ) from error
+    
+
+@app.post("/process-batch")
+def run_process_batch(
+    request: BatchRequest,
+    x_api_key: str | None = Header(default=None),
+):
+    verify_api_key(x_api_key)
+
+    try:
+        return process_batch(request)
+
+    except HTTPException:
+        raise
 
     except Exception as error:
         raise HTTPException(
