@@ -8,26 +8,84 @@ class RenderError(RuntimeError):
 
 def run_command(
     command: list[str],
-) -> None:
+) -> subprocess.CompletedProcess[str]:
+    print("\nRunning FFmpeg command:", flush=True)
+    print(
+        " ".join(str(part) for part in command),
+        flush=True,
+    )
+
     result = subprocess.run(
         command,
-        capture_output=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        check=False,
+    )
+
+    if result.returncode != 0:
+        print(
+            "\nFFmpeg error:",
+            result.stderr,
+            flush=True,
+        )
+
+        raise RenderError(
+            result.stderr.strip()
+            or "FFmpeg command failed"
+        )
+
+    return result
+
+
+def check_ffmpeg() -> None:
+    for command_name in ("ffmpeg", "ffprobe"):
+        result = subprocess.run(
+            [command_name, "-version"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+        )
+
+        if result.returncode != 0:
+            raise RenderError(
+                f"{command_name} was not found inside the container"
+            )
+
+
+def get_video_size(
+    video_path: Path,
+) -> tuple[int, int]:
+    command = [
+        "ffprobe",
+        "-v",
+        "error",
+        "-select_streams",
+        "v:0",
+        "-show_entries",
+        "stream=width,height",
+        "-of",
+        "csv=s=x:p=0",
+        str(video_path),
+    ]
+
+    result = subprocess.run(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
         text=True,
         check=False,
     )
 
     if result.returncode != 0:
         raise RenderError(
-            result.stderr.strip()
-            or "FFmpeg command failed"
+            f"Could not read video size: {result.stderr.strip()}"
         )
 
+    width_text, height_text = result.stdout.strip().split("x")
 
-def check_ffmpeg() -> None:
-    run_command([
-        "ffmpeg",
-        "-version",
-    ])
+    return int(width_text), int(height_text)
 
 
 def add_full_frame_logo(
@@ -35,29 +93,34 @@ def add_full_frame_logo(
     logo_file: Path,
     output_video: Path,
 ) -> Path:
-    """
-    Overlay a transparent full-frame 9:16 image
-    onto a 9:16 source video.
-
-    The image already contains the logo in its final
-    fixed position, so the overlay coordinates are 0:0.
-    """
-
     if not source_video.exists():
         raise FileNotFoundError(
-            f"Source video not found: "
-            f"{source_video}"
+            f"Source video not found: {source_video}"
         )
 
     if not logo_file.exists():
         raise FileNotFoundError(
-            f"Logo file not found: "
-            f"{logo_file}"
+            f"Logo file not found: {logo_file}"
         )
 
     output_video.parent.mkdir(
         parents=True,
         exist_ok=True,
+    )
+
+    video_width, video_height = get_video_size(
+        source_video
+    )
+
+    print(
+        f"\nOverlay input video size: "
+        f"{video_width}x{video_height}",
+        flush=True,
+    )
+
+    print(
+        f"Overlay image file: {logo_file}",
+        flush=True,
     )
 
     command = [
@@ -69,30 +132,34 @@ def add_full_frame_logo(
         str(logo_file),
         "-filter_complex",
         (
-            "[1:v]format=rgba[logo];"
-            "[0:v][logo]"
-            "overlay=0:0:"
-            "format=auto[outv]"
+            f"[1:v]"
+            f"scale={video_width}:{video_height},"
+            f"format=rgba"
+            f"[ovr];"
+            f"[0:v]"
+            f"format=rgba"
+            f"[base];"
+            f"[base][ovr]"
+            f"overlay=0:0:"
+            f"format=auto"
+            f"[v]"
         ),
         "-map",
-        "[outv]",
+        "[v]",
         "-map",
         "0:a?",
         "-c:v",
         "libx264",
         "-preset",
-        "veryfast",
+        "ultrafast",
         "-crf",
-        "20",
+        "23",
         "-pix_fmt",
         "yuv420p",
         "-c:a",
-        "aac",
-        "-b:a",
-        "192k",
+        "copy",
         "-movflags",
         "+faststart",
-        "-shortest",
         str(output_video),
     ]
 
@@ -100,8 +167,7 @@ def add_full_frame_logo(
 
     if not output_video.exists():
         raise RenderError(
-            "FFmpeg completed without "
-            "creating the output file"
+            "FFmpeg did not create the output file"
         )
 
     if output_video.stat().st_size == 0:

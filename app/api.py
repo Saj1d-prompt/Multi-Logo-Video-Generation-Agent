@@ -466,6 +466,17 @@ async def render_one(
             logo_path,
         )
 
+        print(
+            f"Saved logo: {logo_path}",
+            flush=True,
+        )
+
+        print(
+            f"Logo size in bytes: "
+            f"{logo_path.stat().st_size}",
+            flush=True,
+        )
+
         add_full_frame_logo(
             source_video=source_path,
             logo_file=logo_path,
