@@ -19,4 +19,6 @@ class BatchRequest(BaseModel):
     clickup_workspace_id: str
     clickup_list_name: str
 
-    render_settings: RenderSettings = RenderSettings()
+    render_settings: RenderSettings = (
+        RenderSettings()
+    )

@@ -11,6 +11,7 @@ from app.drive_client import (
 )
 from app.models import BatchRequest
 from app.settings import settings
+from app.matching import build_dry_run_plan
 
 
 app = FastAPI(
@@ -183,12 +184,127 @@ def get_clickup_tasks_by_list_name(
 @app.post("/dry-run")
 def dry_run(
     request: BatchRequest,
-    x_api_key: str | None = Header(default=None),
+    x_api_key: str | None = Header(
+        default=None
+    ),
 ):
     verify_api_key(x_api_key)
 
-    return {
-        "status": "success",
-        "message": "Request accepted for testing",
-        "received": request.model_dump(),
-    }
+    try:
+        # Read direct files inside the
+        # supplied video folder.
+        video_folder_files = (
+            list_folder_files(
+                request.video_folder_id
+            )
+        )
+
+        # Keep video files only.
+        videos = [
+            file
+            for file in video_folder_files
+            if file.get(
+                "mimeType",
+                "",
+            ).startswith("video/")
+        ]
+
+        # Find the Logos folder inside
+        # the Assets master folder.
+        logo_folder = find_logo_folder(
+            request.assets_folder_id
+        )
+
+        if not logo_folder:
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    "Logos folder not found "
+                    "inside Assets folder"
+                ),
+            )
+
+        # Read files from the Logos folder.
+        asset_files = list_folder_files(
+            logo_folder["id"]
+        )
+
+        # Keep supported image files only.
+        logo_files = [
+            file
+            for file in asset_files
+            if file.get("mimeType") in {
+                "image/png",
+                "image/jpeg",
+                "image/webp",
+            }
+        ]
+
+        # Find the exact ClickUp List name
+        # and retrieve its tasks.
+        clickup_result = (
+            get_tasks_by_list_name(
+                workspace_id=(
+                    request
+                    .clickup_workspace_id
+                ),
+                list_name=(
+                    request
+                    .clickup_list_name
+                ),
+            )
+        )
+
+        tasks = clickup_result["tasks"]
+
+        # Match:
+        # video stem == task name
+        # task tag == logo stem
+        plan = build_dry_run_plan(
+            videos=videos,
+            logo_files=logo_files,
+            tasks=tasks,
+        )
+
+        return {
+            "status": "success",
+            "video_folder_id": (
+                request.video_folder_id
+            ),
+            "assets_folder_id": (
+                request.assets_folder_id
+            ),
+            "output_folder_id": (
+                request.output_folder_id
+            ),
+            "clickup_list": (
+                clickup_result["list"]
+            ),
+            "total_logo_files": len(
+                logo_files
+            ),
+            **plan,
+        }
+
+    except HTTPException:
+        raise
+
+    except ValueError as error:
+        raise HTTPException(
+            status_code=404,
+            detail=str(error),
+        ) from error
+
+    except httpx.HTTPStatusError as error:
+        raise HTTPException(
+            status_code=(
+                error.response.status_code
+            ),
+            detail=error.response.text,
+        ) from error
+
+    except Exception as error:
+        raise HTTPException(
+            status_code=500,
+            detail=str(error),
+        ) from error
